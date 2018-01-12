@@ -100,7 +100,7 @@ case "$THREADS" in
 	AC_DEFINE(GC_LINUX_THREADS)
 	AC_DEFINE(_REENTRANT)
 	;;
-     *-*-aix*)
+     *-*-aix* | *-*-os400)
 	AC_DEFINE(GC_AIX_THREADS)
 	AC_DEFINE(_REENTRANT)
 	;;
