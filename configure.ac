@@ -293,8 +293,8 @@ case "$host" in
 		TARGET=POWERPC64
 		arch_target=powerpc64
 		platform_os400=yes
-		CPPFLAGS="$CPPFLAGS -DGC_LINUX_THREADS -D_GNU_SOURCE -D_REENTRANT -DUSE_MMAP -Wimplicit-function-declaration -DUSE_GCC_ATOMIC_OPS -DTARGET_POWERPC64"
-		CFLAGS="$CFLAGS -Wimplicit-function-declaration -DUSE_GCC_ATOMIC_OPS -DTARGET_POWERPC64"
+		CPPFLAGS="$CPPFLAGS -DGC_LINUX_THREADS -D_GNU_SOURCE -D_REENTRANT -DUSE_MMAP -Wimplicit-function-declaration -DUSE_GCC_ATOMIC_OPS -DTARGET_POWERPC64 -DPASE"
+		CFLAGS="$CFLAGS -Wimplicit-function-declaration -DUSE_GCC_ATOMIC_OPS -DTARGET_POWERPC64 -DPASE"
 		if test "x$disable_munmap" != "xyes"; then
 			CPPFLAGS="$CPPFLAGS -DUSE_MUNMAP"
 		fi
