@@ -177,7 +177,7 @@ create_names_array_idx_dynamic (const guint16 *names, int ml, MonoError *error)
 MonoBoolean
 ves_icall_System_Globalization_CalendarData_fill_calendar_data (MonoCalendarData *this_obj, MonoString *name, gint32 calendar_index)
 {
-	MonoError error;
+	ERROR_DECL (error);
 	MonoDomain *domain;
 	const DateTimeFormatEntry *dfe;
 	const CultureInfoNameEntry *ne;
@@ -257,7 +257,7 @@ ves_icall_System_Globalization_CalendarData_fill_calendar_data (MonoCalendarData
 void
 ves_icall_System_Globalization_CultureData_fill_culture_data (MonoCultureData *this_obj, gint32 datetime_index)
 {
-	MonoError error;
+	ERROR_DECL (error);
 	MonoDomain *domain;
 	const DateTimeFormatEntry *dfe;
 
@@ -297,7 +297,7 @@ ves_icall_System_Globalization_CultureData_fill_culture_data (MonoCultureData *t
 void
 ves_icall_System_Globalization_CultureData_fill_number_data (MonoNumberFormatInfo* number, gint32 number_index)
 {
-	MonoError error;
+	ERROR_DECL (error);
 	MonoDomain *domain;
 	const NumberFormatEntry *nfe;
 
@@ -448,7 +448,8 @@ region_info_entry_from_lcid (int lcid)
 static gchar*
 get_darwin_locale (void)
 {
-	static gchar *darwin_locale = NULL;
+	static gchar *cached_locale = NULL;
+	gchar *darwin_locale = NULL;
 	CFLocaleRef locale = NULL;
 	CFStringRef locale_language = NULL;
 	CFStringRef locale_country = NULL;
@@ -459,8 +460,8 @@ get_darwin_locale (void)
 	CFIndex len;
 	int i;
 
-	if (darwin_locale != NULL)
-		return g_strdup (darwin_locale);
+	if (cached_locale != NULL)
+		return g_strdup (cached_locale);
 
 	locale = CFLocaleCopyCurrent ();
 
@@ -502,7 +503,7 @@ get_darwin_locale (void)
 				if (!CFStringGetCString (locale_cfstr, darwin_locale, len, kCFStringEncodingMacRoman)) {
 					g_free (darwin_locale);
 					CFRelease (locale);
-					darwin_locale = NULL;
+					cached_locale = NULL;
 					return NULL;
 				}
 
@@ -515,7 +516,9 @@ get_darwin_locale (void)
 		CFRelease (locale);
 	}
 
-	return g_strdup (darwin_locale);
+	mono_memory_barrier ();
+	cached_locale = darwin_locale;
+	return g_strdup (cached_locale);
 }
 #endif
 
@@ -603,7 +606,7 @@ MonoBoolean
 ves_icall_System_Globalization_CultureInfo_construct_internal_locale_from_lcid (MonoCultureInfo *this_obj,
 		gint lcid)
 {
-	MonoError error;
+	ERROR_DECL (error);
 	const CultureInfoEntry *ci;
 	
 	ci = culture_info_entry_from_lcid (lcid);
@@ -621,7 +624,7 @@ MonoBoolean
 ves_icall_System_Globalization_CultureInfo_construct_internal_locale_from_name (MonoCultureInfo *this_obj,
 		MonoString *name)
 {
-	MonoError error;
+	ERROR_DECL (error);
 	const CultureInfoNameEntry *ne;
 	char *n;
 	
@@ -663,7 +666,7 @@ MonoBoolean
 ves_icall_System_Globalization_RegionInfo_construct_internal_region_from_lcid (MonoRegionInfo *this_obj,
 		gint lcid)
 {
-	MonoError error;
+	ERROR_DECL (error);
 	const RegionInfoEntry *ri;
 	
 	ri = region_info_entry_from_lcid (lcid);
@@ -679,7 +682,7 @@ MonoBoolean
 ves_icall_System_Globalization_RegionInfo_construct_internal_region_from_name (MonoRegionInfo *this_obj,
 		MonoString *name)
 {
-	MonoError error;
+	ERROR_DECL (error);
 	const RegionInfoNameEntry *ne;
 	char *n;
 	
@@ -705,7 +708,7 @@ MonoArray*
 ves_icall_System_Globalization_CultureInfo_internal_get_cultures (MonoBoolean neutral,
 		MonoBoolean specific, MonoBoolean installed)
 {
-	MonoError error;
+	ERROR_DECL (error);
 	MonoArray *ret;
 	MonoClass *klass;
 	MonoCultureInfo *culture;
@@ -774,7 +777,7 @@ int ves_icall_System_Globalization_CompareInfo_internal_compare (MonoCompareInfo
 
 void ves_icall_System_Globalization_CompareInfo_assign_sortkey (MonoCompareInfo *this_obj, MonoSortKey *key, MonoString *source, gint32 options)
 {
-	MonoError error;
+	ERROR_DECL (error);
 	MonoArray *arr;
 	gint32 keylen, i;
 

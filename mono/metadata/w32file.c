@@ -35,7 +35,7 @@
 #include <mono/metadata/appdomain.h>
 #include <mono/metadata/marshal.h>
 #include <mono/utils/strenc.h>
-#include <utils/mono-io-portability.h>
+#include <mono/utils/mono-io-portability.h>
 #include <mono/metadata/w32handle.h>
 #include <mono/utils/w32api.h>
 
@@ -731,7 +731,16 @@ ves_icall_System_IO_MonoIO_DuplicateHandle (HANDLE source_process_handle, HANDLE
 		HANDLE target_process_handle, HANDLE *target_handle, gint32 access, gint32 inherit, gint32 options, gint32 *error)
 {
 #ifndef HOST_WIN32
-	*target_handle = mono_w32handle_duplicate (source_handle);
+	MonoW32Handle *source_handle_data;
+
+	if (!mono_w32handle_lookup_and_ref (source_handle, &source_handle_data)) {
+		*error = ERROR_INVALID_HANDLE;
+		return FALSE;
+	}
+
+	*target_handle = mono_w32handle_duplicate (source_handle_data);
+
+	mono_w32handle_unref (source_handle);
 #else
 	gboolean ret;
 
@@ -838,7 +847,7 @@ void ves_icall_System_IO_MonoIO_Unlock (HANDLE handle, gint64 position,
 gint64
 mono_filesize_from_path (MonoString *string)
 {
-	MonoError error;
+	ERROR_DECL (error);
 	struct stat buf;
 	gint64 res;
 	char *path = mono_string_to_utf8_checked (string, &error);

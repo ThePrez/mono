@@ -8,6 +8,7 @@ LIBRARY_NAME = mscorlib.dll
 
 LIB_MCS_FLAGS = $(REFERENCE_SOURCES_FLAGS) $(RESOURCE_FILES:%=-resource:%)
 
+LIBRARY_WARN_AS_ERROR = yes
 #LIBRARY_USE_INTERMEDIATE_FILE = yes
 
 ifeq (2, $(FRAMEWORK_VERSION_MAJOR))
@@ -27,7 +28,8 @@ endif
 RESX_RESOURCE_STRING = \
 	../../../external/corert/src/System.Private.CoreLib/src/Resources/Strings.resx \
 	../../../external/corefx/src/System.Collections.Concurrent/src/Resources/Strings.resx \
-	../../../external/corefx/src/System.Memory/src/Resources/Strings.resx
+	../../../external/corefx/src/System.Memory/src/Resources/Strings.resx \
+	../../../external/corefx/src/System.Runtime.InteropServices.RuntimeInformation/src/Resources/Strings.resx \
 
 LIBRARY_COMPILE = $(BOOT_COMPILE)
 LIBRARY_INSTALL_DIR = $(mono_libdir)/mono/$(FRAMEWORK_VERSION)
@@ -92,13 +94,13 @@ LIB_MCS_FLAGS += -d:MONO_FEATURE_APPLE_X509
 endif
 
 WARNING_ABOUT_DISABLED_WARNING=1635
-LOCAL_MCS_FLAGS = -unsafe -nostdlib -nowarn:612,618,$(WARNING_ABOUT_DISABLED_WARNING) -d:INSIDE_CORLIB,MONO_CULTURE_DATA -d:LIBC $(REFERENCE_SOURCES_FLAGS)
+LOCAL_MCS_FLAGS = -unsafe -nostdlib -nowarn:612,618,3001,3002,3003,$(WARNING_ABOUT_DISABLED_WARNING) -d:INSIDE_CORLIB,MONO_CULTURE_DATA -d:LIBC $(REFERENCE_SOURCES_FLAGS)
 DEFAULT_REFERENCES =
 
 TEST_LIB_REFS = System.Core System
 
-XTEST_LIB_REFS = System System.Core Facades/System.Threading.Tasks Facades/System.Runtime.InteropServices.RuntimeInformation
-XTEST_LIB_FLAGS = -d:netcoreapp
+XTEST_LIB_REFS = System System.Core Facades/System.Threading.Tasks Facades/System.Runtime.InteropServices.RuntimeInformation System.Numerics.Vectors System.Runtime.CompilerServices.Unsafe
+XTEST_LIB_FLAGS = -d:netcoreapp -publicsign -keyfile:../mono.snk
 
 ifndef AOT_FRIENDLY_PROFILE
 ifneq ($(PROFILE),testing_aot_hybrid)
@@ -108,7 +110,7 @@ endif
 
 # System.IO/DirectoryInfoTest.cs needs Mono.Posix
 TEST_MCS_FLAGS += -debug -nowarn:168,219,618,672 -unsafe \
-				 -define:MONO_DATACONVERTER_STATIC_METHODS $(TEST_RESX_RESOURCES:%=-resource:%)
+				 -define:MONO_DATACONVERTER_STATIC_METHODS $(TEST_RESX_RESOURCES:%=-resource:%) -resource:LinkerDescriptor/mscorlib_test.xml,$(test_lib:.dll=.xml)
 
 
 CC_PROFILE := $(filter monotouch% xammac, $(PROFILE))
@@ -144,7 +146,8 @@ EXTRA_DISTFILES = \
 	Test/resources/Fergie.GED		\
 	Test/resources/culture-*.cs		\
 	$(RESOURCE_FILES) \
-	$(TEST_RESOURCES:.resources=.resx)
+	$(TEST_RESOURCES:.resources=.resx) \
+	LinkerDescriptor/mscorlib_test.xml
 
 TEST_RESX_RESOURCES = \
 	Test/resources/Resources.resources
@@ -165,7 +168,7 @@ TEST_RESOURCES = $(TEST_RESX_RESOURCES) $(TEST_RESX_RESOURCES_SATELITE)
 satellite_assembly1 = es-ES/$(patsubst %.dll,%.resources.dll,$(test_lib))
 satellite_assembly2 = nn-NO/$(patsubst %.dll,%.resources.dll,$(test_lib))
 
-$(test_lib): $(TEST_RESOURCES) $(satellite_assembly1) $(satellite_assembly2) 
+$(test_lib_output): $(TEST_RESOURCES) $(satellite_assembly1) $(satellite_assembly2) $(test_lib_dir)
 
 $(satellite_assembly1): Test/resources/culture-es-ES.cs Test/resources/Resources.es-ES.resources
 	@mkdir -p es-ES
@@ -203,7 +206,7 @@ TEST_MONO_PATH=$(PWD)/../lib/$(PROFILE)
 
 run-test-vts: test-vts
 	@echo Running vts tests...
-	PATH="$(TEST_RUNTIME_WRAPPERS_PATH):$(PATH)" $(TEST_RUNTIME) $(RUNTIME_FLAGS) $(TEST_HARNESS) $(NOSHADOW_FLAG) \
+	PATH="$(TEST_RUNTIME_WRAPPERS_PATH):$(PATH)" $(TEST_RUNTIME) $(TEST_RUNTIME_FLAGS) $(TEST_HARNESS) $(NOSHADOW_FLAG) \
 		$(vtsdir)/$(PROFILE)_TestLib/BinarySerializationOverVersions.exe
 
 ifdef NO_TEST

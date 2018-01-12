@@ -708,6 +708,7 @@ namespace MonoTests.System
 		}
 		
 		[Test]
+		[Category ("NotWorkingRuntimeInterpreter")]
 		public void TestToSingle()
 		{
 		    // Single Decimal.ToSingle(Decimal)
@@ -725,6 +726,7 @@ namespace MonoTests.System
 		}
 		
 		[Test]
+		[Category ("NotWorkingRuntimeInterpreter")]
 		public void TestToDouble()
 		{
 		    Double d = Decimal.ToDouble(new Decimal(0, 0, 1, false, 0));

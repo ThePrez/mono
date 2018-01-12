@@ -8,12 +8,14 @@
  * Copyright (C) 2005-2008 Novell, Inc. (http://www.novell.com)
  * Licensed under the MIT license. See LICENSE file in the project root for full license information.
  */
+#include <config.h>
 #include <mono/metadata/object-internals.h>
 #include <mono/metadata/verify.h>
 #include <mono/metadata/verify-internals.h>
 #include <mono/metadata/opcodes.h>
 #include <mono/metadata/tabledefs.h>
 #include <mono/metadata/reflection.h>
+#include <mono/metadata/reflection-internals.h>
 #include <mono/metadata/debug-helpers.h>
 #include <mono/metadata/mono-endian.h>
 #include <mono/metadata/metadata.h>
@@ -1781,6 +1783,7 @@ is_valid_ser_string (VerifyContext *ctx, const char **_ptr, const char *end)
 static MonoClass*
 get_enum_by_encoded_name (VerifyContext *ctx, const char **_ptr, const char *end)
 {
+	ERROR_DECL (error);
 	MonoType *type;
 	MonoClass *klass;
 	const char *str_start = NULL;
@@ -1799,10 +1802,11 @@ get_enum_by_encoded_name (VerifyContext *ctx, const char **_ptr, const char *end
 
 	enum_name = (char *)g_memdup (str_start, str_len + 1);
 	enum_name [str_len] = 0;
-	type = mono_reflection_type_from_name (enum_name, ctx->image);
-	if (!type) {
-		ADD_ERROR_NO_RETURN (ctx, g_strdup_printf ("CustomAttribute: Invalid enum class %s", enum_name));
+	type = mono_reflection_type_from_name_checked (enum_name, ctx->image, &error);
+	if (!type || !is_ok (&error)) {
+		ADD_ERROR_NO_RETURN (ctx, g_strdup_printf ("CustomAttribute: Invalid enum class %s, due to %s", enum_name, mono_error_get_message (&error)));
 		g_free (enum_name);
+		mono_error_cleanup (&error);
 		return NULL;
 	}
 	g_free (enum_name);
@@ -1951,7 +1955,7 @@ handle_enum:
 static gboolean
 is_valid_cattr_content (VerifyContext *ctx, MonoMethod *ctor, const char *ptr, guint32 size)
 {
-	MonoError error;
+	ERROR_DECL (error);
 	unsigned prolog = 0;
 	const char *end;
 	MonoMethodSignature *sig;
@@ -2401,7 +2405,7 @@ static void
 verify_typeref_table (VerifyContext *ctx)
 {
 	MonoTableInfo *table = &ctx->image->tables [MONO_TABLE_TYPEREF];
-	MonoError error;
+	ERROR_DECL (error);
 	guint32 i;
 
 	for (i = 0; i < table->rows; ++i) {
@@ -2940,7 +2944,7 @@ verify_cattr_table (VerifyContext *ctx)
 static void
 verify_cattr_table_full (VerifyContext *ctx)
 {
-	MonoError error;
+	ERROR_DECL (error);
 	MonoTableInfo *table = &ctx->image->tables [MONO_TABLE_CUSTOMATTRIBUTE];
 	MonoMethod *ctor;
 	const char *ptr;

@@ -177,11 +177,14 @@ do-all-aot:
 ifneq ("$(wildcard $(topdir)/class/lib/$(PROFILE))","")
 
 AOT_PROFILE_ASSEMBLIES := $(sort $(patsubst .//%,%,$(filter-out %.dll.dll %.exe.dll %bare% %plaincore% %secxml% %Facades% %ilasm%,$(filter %.dll %.exe,$(wildcard $(topdir)/class/lib/$(PROFILE)/*)))))
+AOT_PROFILE_TESTS := $(sort $(patsubst .//%,%,$(filter-out %.dll.dll %.exe.dll %bare% %plaincore% %secxml% %Facades% %ilasm%,$(filter %.dll %.exe,$(wildcard $(topdir)/class/lib/$(PROFILE)/tests/*)))))
+AOT_PROFILE_ASSEMBLIES_OUT := $(patsubst %,%$(PLATFORM_AOT_SUFFIX),$(AOT_PROFILE_ASSEMBLIES))
+AOT_PROFILE_TESTS_OUT := $(patsubst %,%$(PLATFORM_AOT_SUFFIX),$(AOT_PROFILE_TESTS))
 
 # This can run in parallel
 .PHONY: aot-all-profile
 ifdef AOT_BUILD_FLAGS
-aot-all-profile: $(patsubst %,%$(PLATFORM_AOT_SUFFIX),$(AOT_PROFILE_ASSEMBLIES))
+aot-all-profile: $(AOT_PROFILE_ASSEMBLIES_OUT) $(AOT_PROFILE_TESTS_OUT)
 else
 aot-all-profile:
 	echo AOT_BUILD_FLAGS not set, skipping AOT.
@@ -189,12 +192,12 @@ endif
 
 %.dll$(PLATFORM_AOT_SUFFIX): %.dll
 	@ mkdir -p $<_bitcode_tmp
-	$(Q_AOT) MONO_PATH="$(dir $<)" $(RUNTIME) $(RUNTIME_FLAGS) $(AOT_BUILD_FLAGS),temp-path=$<_bitcode_tmp --verbose $< > $@.aot-log
+	$(Q_AOT) MONO_PATH="$(topdir)/class/lib/$(PROFILE)" $(RUNTIME) $(RUNTIME_FLAGS) $(AOT_BUILD_FLAGS),temp-path=$<_bitcode_tmp --verbose $< > $@.aot-log
 	@ rm -rf $<_bitcode_tmp
 
 %.exe$(PLATFORM_AOT_SUFFIX): %.exe
 	@ mkdir -p $<_bitcode_tmp
-	$(Q_AOT) MONO_PATH="$(dir $<)" $(RUNTIME) $(RUNTIME_FLAGS) $(AOT_BUILD_FLAGS),temp-path=$<_bitcode_tmp --verbose $< > $@.aot-log
+	$(Q_AOT) MONO_PATH="$(topdir)/class/lib/$(PROFILE)" $(RUNTIME) $(RUNTIME_FLAGS) $(AOT_BUILD_FLAGS),temp-path=$<_bitcode_tmp --verbose $< > $@.aot-log
 	@ rm -rf $<_bitcode_tmp
 
 endif #ifneq ("$(wildcard $(topdir)/class/lib/$(PROFILE))","")
@@ -285,6 +288,15 @@ dist-recursive: dist-local
 	    (cd $$d && $(MAKE) distdir=$$reldir/$$d $@) || exit 1 ; \
 	done
 
+# function to dist files in groups of 100 entries to make sure we don't exceed shell char limits
+define distfilesingroups
+for f in $(wordlist 1, 100, $(1)) ; do \
+	dest=`dirname "$(distdir)/$$f"` ; \
+	$(MKINSTALLDIRS) $$dest && cp -p "$$f" $$dest || exit 1 ; \
+done
+$(if $(word 101, $(1)), $(call distfilesingroups, $(wordlist 101, $(words $(1)), $(1))))
+endef
+
 # The following target can be used like
 #
 #   dist-local: dist-default
@@ -293,17 +305,11 @@ dist-recursive: dist-local
 # Notes:
 #  1. we invert the test here to not end in an error if ChangeLog doesn't exist.
 #  2. we error out if we try to dist a nonexistant file.
-#  3. we pick up Makefile, makefile, or GNUmakefile.
+#  3. we pick up Makefile
 dist-default:
 	-mkdir -p $(distdir)
 	test '!' -f ChangeLog || cp ChangeLog $(distdir)
-	if test -f Makefile; then m=M; fi; \
-	if test -f makefile; then m=m; fi; \
-	if test -f GNUmakefile; then m=GNUm; fi; \
-	for f in $${m}akefile $(DISTFILES) ; do \
-	    dest=`dirname "$(distdir)/$$f"` ; \
-	    $(MKINSTALLDIRS) $$dest && cp -p "$$f" $$dest || exit 1 ; \
-	done
+	$(call distfilesingroups, Makefile $(DISTFILES))
 	if test -d Documentation ; then \
 		find . -name '*.xml' > .files ; \
 		tar cTf .files - | (cd $(distdir); tar xf -) ; \

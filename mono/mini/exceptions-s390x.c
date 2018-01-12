@@ -60,6 +60,8 @@
 #include "mini.h"
 #include "mini-s390x.h"
 #include "support-s390x.h"
+#include "mini-runtime.h"
+#include "aot-runtime.h"
 
 /*========================= End of Includes ========================*/
 
@@ -240,7 +242,7 @@ throw_exception (MonoObject *exc, unsigned long ip, unsigned long sp,
 		 gulong *int_regs, gdouble *fp_regs, gint32 *acc_regs, 
 		 guint fpc, gboolean rethrow)
 {
-	MonoError error;
+	ERROR_DECL (error);
 	MonoContext ctx;
 	int iReg;
 

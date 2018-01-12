@@ -716,9 +716,18 @@ namespace Mono.CSharp
 					res = Token.EXTERN_ALIAS;
 				break;
 			case Token.DEFAULT:
-				if (peek_token () == Token.COLON) {
-					token ();
-					res = Token.DEFAULT_COLON;
+				switch (peek_token ()) {
+				case Token.COLON:
+					// Special case: foo == null ? default : 1;
+					if (current_token != Token.INTERR) {
+						token ();
+						res = Token.DEFAULT_COLON;
+					}
+					break;
+				case Token.OPEN_PARENS:
+				case Token.OPEN_PARENS_CAST:
+					res = Token.DEFAULT_VALUE;
+					break;
 				}
 				break;
 			case Token.WHEN:
@@ -812,10 +821,12 @@ namespace Mono.CSharp
 				PushPosition ();
 
 				next_token = token ();
-				bool ok = (next_token == Token.CLASS) ||
-					(next_token == Token.STRUCT) ||
-					(next_token == Token.INTERFACE) ||
-					(next_token == Token.VOID);
+				bool ok =
+					next_token == Token.CLASS ||
+					next_token == Token.STRUCT ||
+					next_token == Token.INTERFACE ||
+					next_token == Token.VOID ||
+					next_token == Token.REF_STRUCT;
 
 				PopPosition ();
 
@@ -903,6 +914,12 @@ namespace Mono.CSharp
 					break;
 				}
 
+				break;
+			case Token.REF:
+				if (peek_token () == Token.STRUCT) {
+					token ();
+					res = Token.REF_STRUCT;
+				}
 				break;
 			}
 
@@ -1094,6 +1111,7 @@ namespace Mono.CSharp
 						case Token.UNCHECKED:
 						case Token.UNSAFE:
 						case Token.DEFAULT:
+						case Token.DEFAULT_VALUE:
 						case Token.AWAIT:
 
 						//
@@ -1387,6 +1405,7 @@ namespace Mono.CSharp
 			case Token.NEW:
 			case Token.INTERPOLATED_STRING:
 			case Token.THROW:
+			case Token.DEFAULT_COLON:
 				next_token = Token.INTERR;
 				break;
 				
@@ -3509,6 +3528,7 @@ namespace Mono.CSharp
 						case Token.SWITCH:
 						case Token.USING:
 						case Token.DEFAULT:
+						case Token.DEFAULT_VALUE:
 						case Token.DELEGATE:
 						case Token.OP_GENERICS_GT:
 						case Token.REFVALUE:

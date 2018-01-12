@@ -1362,6 +1362,7 @@ ncells ) {
 		return 1.4e-45f;
 	}
 
+	[Category ("!BITCODE")] // bug #59953
 	public static int test_0_float_return_spill () {
 		// The return value of return_float () is spilled because of the
 		// boxing call
@@ -1827,6 +1828,19 @@ ncells ) {
 		}
 
 		return 0;
+	}
+
+	static void decode (out sbyte v) {
+		byte tmp = 134;
+		v = (sbyte)tmp;
+	}
+
+	// gh #6414
+	public static int test_0_alias_analysis_sign_extend () {
+	  sbyte t;
+	  decode (out t);
+
+	  return t == -122 ? 0 : 1;
 	}
 }
 

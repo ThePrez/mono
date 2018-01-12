@@ -31,6 +31,7 @@
 #include <mono/metadata/opcodes.h>
 #include <mono/metadata/mono-endian.h>
 #include <mono/metadata/tokentype.h>
+#include <mono/metadata/reflection-internals.h>
 #include <mono/metadata/tabledefs.h>
 #include <mono/metadata/threads.h>
 #include <mono/metadata/marshal.h>
@@ -57,6 +58,8 @@
 #include "mini.h"
 #include "jit.h"
 #include "aot-compiler.h"
+#include "aot-runtime.h"
+#include "mini-runtime.h"
 #include "interp/interp.h"
 
 #include <string.h>
@@ -370,7 +373,7 @@ mini_regression_step (MonoImage *image, int verbose, int *total_run, int *total,
 	if (mini_stats_fd)
 		fprintf (mini_stats_fd, "[");
 	for (i = 0; i < mono_image_get_table_rows (image, MONO_TABLE_METHOD); ++i) {
-		MonoError error;
+		ERROR_DECL (error);
 		MonoMethod *method = mono_get_method_checked (image, MONO_TOKEN_METHOD_DEF | (i + 1), NULL, NULL, &error);
 		if (!method) {
 			mono_error_cleanup (&error); /* FIXME don't swallow the error */
@@ -389,7 +392,7 @@ mini_regression_step (MonoImage *image, int verbose, int *total_run, int *total,
 				if (verbose >= 2)
 					g_print ("Running '%s' ...\n", method->name);
 #ifdef MONO_USE_AOT_COMPILER
-				MonoError error;
+				ERROR_DECL (error);
 				func = (TestMethod)mono_aot_get_method_checked (mono_get_root_domain (), method, &error);
 				mono_error_cleanup (&error);
 				if (!func)
@@ -469,7 +472,7 @@ mini_regression (MonoImage *image, int verbose, int *total_run)
 
 	/* load the metadata */
 	for (i = 0; i < mono_image_get_table_rows (image, MONO_TABLE_METHOD); ++i) {
-		MonoError error;
+		ERROR_DECL (error);
 		method = mono_get_method_checked (image, MONO_TOKEN_METHOD_DEF | (i + 1), NULL, NULL, &error);
 		if (!method) {
 			mono_error_cleanup (&error);
@@ -560,6 +563,171 @@ mini_regression_list (int verbose, int count, char *images [])
 	
 	return total;
 }
+
+static void
+interp_regression_step (MonoImage *image, int verbose, int *total_run, int *total, GTimer *timer, MonoDomain *domain)
+{
+	int result, expected, failed, cfailed, run;
+	double elapsed, transform_time;
+	int i;
+	MonoObject *result_obj;
+	static gboolean filter_method_init = FALSE;
+	static const char *filter_method = NULL;
+
+	g_print ("Test run: image=%s\n", mono_image_get_filename (image));
+	cfailed = failed = run = 0;
+	transform_time = elapsed = 0.0;
+
+	g_timer_start (timer);
+	for (i = 0; i < mono_image_get_table_rows (image, MONO_TABLE_METHOD); ++i) {
+		MonoObject *exc = NULL;
+		ERROR_DECL (error);
+		MonoMethod *method = mono_get_method_checked (image, MONO_TOKEN_METHOD_DEF | (i + 1), NULL, NULL, &error);
+		if (!method) {
+			mono_error_cleanup (&error); /* FIXME don't swallow the error */
+			continue;
+		}
+
+		if (!filter_method_init) {
+			filter_method = g_getenv ("INTERP_FILTER_METHOD");
+			filter_method_init = TRUE;
+		}
+		gboolean filter = FALSE;
+		if (filter_method) {
+			const char *name = filter_method;
+
+			if ((strchr (name, '.') > name) || strchr (name, ':')) {
+				MonoMethodDesc *desc = mono_method_desc_new (name, TRUE);
+				filter = mono_method_desc_full_match (desc, method);
+				mono_method_desc_free (desc);
+			} else {
+				filter = strcmp (method->name, name) == 0;
+			}
+		} else { /* no filter, check for `Category' attribute on method */
+			filter = TRUE;
+			MonoCustomAttrInfo* ainfo = mono_custom_attrs_from_method_checked (method, &error);
+			mono_error_cleanup (&error);
+
+			if (ainfo) {
+				int j;
+				for (j = 0; j < ainfo->num_attrs && filter; ++j) {
+					MonoCustomAttrEntry *centry = &ainfo->attrs [j];
+					if (centry->ctor == NULL)
+						continue;
+
+					MonoClass *klass = centry->ctor->klass;
+					if (strcmp (klass->name, "CategoryAttribute"))
+						continue;
+
+					MonoObject *obj = mono_custom_attrs_get_attr_checked (ainfo, klass, &error);
+					/* FIXME: there is an ordering problem if there're multiple attributes, do this instead:
+					 * MonoObject *obj = create_custom_attr (ainfo->image, centry->ctor, centry->data, centry->data_size, &error); */
+					mono_error_cleanup (&error);
+					MonoMethod *getter = mono_class_get_method_from_name (klass, "get_Category", -1);
+					MonoObject *str = mini_get_interp_callbacks ()->runtime_invoke (getter, obj, NULL, &exc, &error);
+					mono_error_cleanup (&error);
+					char *utf8_str = mono_string_to_utf8_checked ((MonoString *) str, &error);
+					mono_error_cleanup (&error);
+					if (!strcmp (utf8_str, "!INTERPRETER")) {
+						g_print ("skip %s...\n", method->name);
+						filter = FALSE;
+					}
+				}
+			}
+		}
+		if (strncmp (method->name, "test_", 5) == 0 && filter) {
+			ERROR_DECL (interp_error);
+			MonoObject *exc = NULL;
+
+			result_obj = mini_get_interp_callbacks ()->runtime_invoke (method, NULL, NULL, &exc, &interp_error);
+			if (!mono_error_ok (&interp_error)) {
+				cfailed++;
+				g_print ("Test '%s' execution failed.\n", method->name);
+			} else if (exc != NULL) {
+				g_print ("Exception in Test '%s' occured:\n", method->name);
+				mono_object_describe (exc);
+				run++;
+				failed++;
+			} else {
+				result = *(gint32 *) mono_object_unbox (result_obj);
+				expected = atoi (method->name + 5);  // FIXME: oh no.
+				run++;
+
+				if (result != expected) {
+					failed++;
+					g_print ("Test '%s' failed result (got %d, expected %d).\n", method->name, result, expected);
+				}
+			}
+		}
+	}
+	g_timer_stop (timer);
+	elapsed = g_timer_elapsed (timer, NULL);
+	if (failed > 0 || cfailed > 0){
+		g_print ("Results: total tests: %d, failed: %d, cfailed: %d (pass: %.2f%%)\n",
+				run, failed, cfailed, 100.0*(run-failed-cfailed)/run);
+	} else {
+		g_print ("Results: total tests: %d, all pass \n",  run);
+	}
+
+	g_print ("Elapsed time: %f secs (%f, %f)\n\n", elapsed,
+			elapsed - transform_time, transform_time);
+	*total += failed + cfailed;
+	*total_run += run;
+}
+
+static int
+interp_regression (MonoImage *image, int verbose, int *total_run)
+{
+	MonoMethod *method;
+	GTimer *timer = g_timer_new ();
+	MonoDomain *domain = mono_domain_get ();
+	guint32 i;
+	int total;
+
+	/* load the metadata */
+	for (i = 0; i < mono_image_get_table_rows (image, MONO_TABLE_METHOD); ++i) {
+		ERROR_DECL (error);
+		method = mono_get_method_checked (image, MONO_TOKEN_METHOD_DEF | (i + 1), NULL, NULL, &error);
+		if (!method) {
+			mono_error_cleanup (&error);
+			continue;
+		}
+		mono_class_init (method->klass);
+	}
+
+	total = 0;
+	*total_run = 0;
+	interp_regression_step (image, verbose, total_run, &total, timer, domain);
+
+	g_timer_destroy (timer);
+	return total;
+}
+
+/* TODO: merge this code with the regression harness of the JIT */
+static int
+mono_interp_regression_list (int verbose, int count, char *images [])
+{
+	int i, total, total_run, run;
+
+	total_run = total = 0;
+	for (i = 0; i < count; ++i) {
+		MonoAssembly *ass = mono_assembly_open_predicate (images [i], FALSE, FALSE, NULL, NULL, NULL);
+		if (!ass) {
+			g_warning ("failed to load assembly: %s", images [i]);
+			continue;
+		}
+		total += interp_regression (mono_assembly_get_image (ass), verbose, &run);
+		total_run += run;
+	}
+	if (total > 0) {
+		g_print ("Overall results: tests: %d, failed: %d (pass: %.2f%%)\n", total_run, total, 100.0*(total_run-total)/total_run);
+	} else {
+		g_print ("Overall results: tests: %d, 100%% pass\n", total_run);
+	}
+
+	return total;
+}
+
 
 #ifdef MONO_JIT_INFO_TABLE_TEST
 typedef struct _JitInfoData
@@ -846,7 +1014,7 @@ small_id_thread_func (gpointer arg)
 static void
 jit_info_table_test (MonoDomain *domain)
 {
-	MonoError error;
+	ERROR_DECL (error);
 	int i;
 
 	g_print ("testing jit_info_table\n");
@@ -910,7 +1078,7 @@ compile_all_methods_thread_main_inner (CompileAllThreadArgs *args)
 	int i, count = 0, fail_count = 0;
 
 	for (i = 0; i < mono_image_get_table_rows (image, MONO_TABLE_METHOD); ++i) {
-		MonoError error;
+		ERROR_DECL (error);
 		guint32 token = MONO_TOKEN_METHOD_DEF | (i + 1);
 		MonoMethodSignature *sig;
 
@@ -971,7 +1139,7 @@ compile_all_methods_thread_main (CompileAllThreadArgs *args)
 static void
 compile_all_methods (MonoAssembly *ass, int verbose, guint32 opts, guint32 recompilation_times)
 {
-	MonoError error;
+	ERROR_DECL (error);
 	CompileAllThreadArgs args;
 
 	args.ass = ass;
@@ -999,7 +1167,7 @@ compile_all_methods (MonoAssembly *ass, int verbose, guint32 opts, guint32 recom
 int 
 mono_jit_exec (MonoDomain *domain, MonoAssembly *assembly, int argc, char *argv[])
 {
-	MonoError error;
+	ERROR_DECL (error);
 	MonoImage *image = mono_assembly_get_image (assembly);
 	MonoMethod *method;
 	guint32 entry = mono_image_get_entry_point (image);
@@ -1061,6 +1229,7 @@ static void main_thread_handler (gpointer user_data)
 
 	if (mono_compile_aot) {
 		int i, res;
+		gpointer *aot_state = NULL;
 
 		/* Treat the other arguments as assemblies to compile too */
 		for (i = 0; i < main_args->argc; ++i) {
@@ -1080,9 +1249,16 @@ static void main_thread_handler (gpointer user_data)
 					exit (1);
 				}
 			}
-			res = mono_compile_assembly (assembly, main_args->opts, main_args->aot_options);
+			res = mono_compile_assembly (assembly, main_args->opts, main_args->aot_options, &aot_state);
 			if (res != 0) {
 				fprintf (stderr, "AOT of image %s failed.\n", main_args->argv [i]);
+				exit (1);
+			}
+		}
+		if (aot_state) {
+			res = mono_compile_deferred_assemblies (main_args->opts, main_args->aot_options, &aot_state);
+			if (res != 0) {
+				fprintf (stderr, "AOT of mode-specific deferred assemblies failed.\n");
 				exit (1);
 			}
 		}
@@ -1107,7 +1283,7 @@ static void main_thread_handler (gpointer user_data)
 static int
 load_agent (MonoDomain *domain, char *desc)
 {
-	MonoError error;
+	ERROR_DECL (error);
 	char* col = strchr (desc, ':');	
 	char *agent, *args;
 	MonoAssembly *agent_assembly;
@@ -1351,6 +1527,11 @@ static const char info[] =
 	"softdebug "
 #endif
 		"\n"
+#ifndef DISABLE_INTERPRETER
+	"\tInterpreter:   yes\n"
+#else
+	"\tInterpreter:   no\n"
+#endif
 #ifdef MONO_ARCH_LLVM_SUPPORTED
 #ifdef ENABLE_LLVM
 	"\tLLVM:          yes(" LLVM_VERSION ")\n"
@@ -1568,6 +1749,26 @@ apply_root_domain_configuration_file_bindings (MonoDomain *domain, char *root_do
 
 }
 
+static void
+mono_enable_interp (const char *opts)
+{
+	mono_use_interpreter = TRUE;
+	if (opts)
+		mono_interp_opts_string = opts;
+
+#ifdef DISABLE_INTERPRETER
+	g_error ("Mono IL interpreter support is missing\n");
+#endif
+
+#ifdef MONO_CROSS_COMPILE
+	g_error ("--interpreter on cross-compile runtimes not supported\n");
+#endif
+
+#if !defined(TARGET_AMD64) && !defined(TARGET_ARM) && !defined(TARGET_ARM64)
+	g_error ("--interpreter not supported on this architecture.\n");
+#endif
+}
+
 /**
  * mono_main:
  * \param argc number of arguments in the argv array
@@ -1621,6 +1822,20 @@ mono_main (int argc, char* argv[])
 
 	if (g_hasenv ("MONO_NO_SMP"))
 		mono_set_use_smp (FALSE);
+
+#ifdef MONO_JEMALLOC_ENABLED
+
+	gboolean use_jemalloc = FALSE;
+#ifdef MONO_JEMALLOC_DEFAULT
+	use_jemalloc = TRUE;
+#endif
+	if (!use_jemalloc)
+		use_jemalloc = g_hasenv ("MONO_USE_JEMALLOC");
+
+	if (use_jemalloc)
+		mono_init_jemalloc ();
+
+#endif
 	
 	g_log_set_always_fatal (G_LOG_LEVEL_ERROR);
 	g_log_set_fatal_mask (G_LOG_DOMAIN, G_LOG_LEVEL_ERROR);
@@ -1920,18 +2135,9 @@ mono_main (int argc, char* argv[])
 		} else if (strcmp (argv [i], "--nollvm") == 0){
 			mono_use_llvm = FALSE;
 		} else if ((strcmp (argv [i], "--interpreter") == 0) || !strcmp (argv [i], "--interp")) {
-#ifdef ENABLE_INTERPRETER
-			mono_use_interpreter = TRUE;
-#else
-			fprintf (stderr, "Mono Warning: --interpreter not enabled in this runtime.\n");
-#endif
+			mono_enable_interp (NULL);
 		} else if (strncmp (argv [i], "--interp=", 9) == 0) {
-#ifdef ENABLE_INTERPRETER
-			mono_use_interpreter = TRUE;
-			mono_interp_parse_options (argv [i] + 9);
-#else
-			fprintf (stderr, "Mono Warning: --interp= not enabled in this runtime.\n");
-#endif
+			mono_enable_interp (argv [i] + 9);
 		} else if (strncmp (argv [i], "--assembly-loader=", strlen("--assembly-loader=")) == 0) {
 			gchar *arg = argv [i] + strlen ("--assembly-loader=");
 			if (strcmp (arg, "strict") == 0)
@@ -2074,7 +2280,6 @@ mono_main (int argc, char* argv[])
 	case DO_SINGLE_METHOD_REGRESSION:
 		mono_do_single_method_regression = TRUE;
 	case DO_REGRESSION:
-#ifdef ENABLE_INTERPRETER
 		if (mono_use_interpreter) {
 			if (mono_interp_regression_list (2, argc -i, argv + i)) {
 				g_print ("Regression ERRORS!\n");
@@ -2084,7 +2289,6 @@ mono_main (int argc, char* argv[])
 			// mini_cleanup (domain);
 			return 0;
 		}
-#endif
 		if (mini_regression_list (mini_verbose, argc -i, argv + i)) {
 			g_print ("Regression ERRORS!\n");
 			mini_cleanup (domain);

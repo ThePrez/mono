@@ -32,8 +32,9 @@ typedef struct {
 	const char *full_message;
 	const char *full_message_with_fields;
 	const char *first_argument;
+	const char *member_signature;
 
-	void *padding [3];
+	void *padding [2];
 } MonoErrorInternal;
 
 /* Invariant: the error strings are allocated in the mempool of the given image */
@@ -41,6 +42,10 @@ struct _MonoErrorBoxed {
 	MonoError error;
 	MonoImage *image;
 };
+
+// Initial version for easier to read history.
+#define ERROR_DECL(name) \
+	MonoError name
 
 #define error_init(error) do {	\
 	((MonoErrorInternal*)(error))->error_code = MONO_ERROR_NONE;	\
@@ -55,14 +60,16 @@ struct _MonoErrorBoxed {
 #define goto_if_nok(error,label) do { if (!is_ok ((error))) goto label; } while (0)
 
 /* Only use this in icalls */
-#define return_val_and_set_pending_if_nok(error,value)	\
+#define return_val_and_set_pending_if_nok(error, value) \
+do { 							\
 	if (mono_error_set_pending_exception ((error)))	\
-		return (value);
+		return (value); 			\
+} while (0)						\
 
 void
 mono_error_assert_ok_pos (MonoError *error, const char* filename, int lineno) MONO_LLVM_INTERNAL;
 
-#define mono_error_assert_ok(e) mono_error_assert_ok_pos (e, __FILE__, __LINE__);
+#define mono_error_assert_ok(e) mono_error_assert_ok_pos (e, __FILE__, __LINE__)
 
 void
 mono_error_dup_strings (MonoError *error, gboolean dup_strings);
@@ -87,7 +94,7 @@ void
 mono_error_set_type_load_name (MonoError *error, const char *type_name, const char *assembly_name, const char *msg_format, ...) MONO_ATTR_FORMAT_PRINTF(4,5);
 
 void
-mono_error_set_method_load (MonoError *error, MonoClass *klass, const char *method_name, const char *msg_format, ...) MONO_ATTR_FORMAT_PRINTF(4,5);
+mono_error_set_method_load (MonoError *oerror, MonoClass *klass, const char *method_name, const char *signature, const char *msg_format, ...);
 
 void
 mono_error_set_field_load (MonoError *error, MonoClass *klass, const char *field_name, const char *msg_format, ...)  MONO_ATTR_FORMAT_PRINTF(4,5);

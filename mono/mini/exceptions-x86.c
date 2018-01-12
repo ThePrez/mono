@@ -30,7 +30,9 @@
 
 #include "mini.h"
 #include "mini-x86.h"
+#include "mini-runtime.h"
 #include "tasklets.h"
+#include "aot-runtime.h"
 
 static gpointer signal_exception_trampoline;
 
@@ -453,7 +455,7 @@ void
 mono_x86_throw_exception (mgreg_t *regs, MonoObject *exc, 
 						  mgreg_t eip, gboolean rethrow)
 {
-	MonoError error;
+	ERROR_DECL (error);
 	MonoContext ctx;
 
 	ctx.esp = regs [X86_ESP];

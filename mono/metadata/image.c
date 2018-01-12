@@ -765,7 +765,7 @@ mono_image_load_module_checked (MonoImage *image, int idx, MonoError *error)
 MonoImage*
 mono_image_load_module (MonoImage *image, int idx)
 {
-	MonoError error;
+	ERROR_DECL (error);
 	MonoImage *result = mono_image_load_module_checked (image, idx, &error);
 	mono_error_assert_ok (&error);
 	return result;
@@ -2084,6 +2084,7 @@ mono_image_close_except_pools (MonoImage *image)
 	free_hash (image->pinvoke_scope_filenames);
 	free_hash (image->native_func_wrapper_cache);
 	mono_conc_hashtable_destroy (image->typespec_cache);
+	free_hash (image->weak_field_indexes);
 
 	mono_wrapper_caches_free (&image->wrapper_caches);
 
@@ -2498,7 +2499,7 @@ done:
 MonoImage*
 mono_image_load_file_for_image (MonoImage *image, int fileidx)
 {
-	MonoError error;
+	ERROR_DECL (error);
 	MonoImage *result = mono_image_load_file_for_image_checked (image, fileidx, &error);
 	mono_error_assert_ok (&error);
 	return result;

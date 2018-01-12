@@ -9,6 +9,7 @@
 #include <mono/metadata/class-internals.h>
 #include <mono/metadata/debug-internals.h>
 #include "config.h"
+#include "interp.h"
 
 #define MINT_TYPE_I1 0
 #define MINT_TYPE_U1 1
@@ -130,13 +131,12 @@ struct _InterpFrame {
 	const unsigned short  *ip;
 	MonoException     *ex;
 	MonoExceptionClause *ex_handler;
+	MonoDomain *domain;
 };
 
 typedef struct {
 	MonoDomain *original_domain;
 	InterpFrame *current_frame;
-	unsigned char search_for_handler;
-
 	/* Resume state for resuming execution in mixed mode */
 	gboolean       has_resume_state;
 	/* Frame to resume execution at */
@@ -149,7 +149,7 @@ extern int mono_interp_traceopt;
 extern GSList *jit_classes;
 
 MonoException *
-mono_interp_transform_method (InterpMethod *imethod, ThreadContext *context, MonoDelegate *del);
+mono_interp_transform_method (InterpMethod *imethod, ThreadContext *context, InterpFrame *frame);
 
 void
 mono_interp_transform_init (void);

@@ -328,6 +328,7 @@ struct _MonoClass {
 	guint has_finalize_inited    : 1; /* has_finalize is initialized */
 	guint fields_inited : 1; /* setup_fields () has finished */
 	guint has_failure : 1; /* See mono_class_get_exception_data () for a MonoErrorBoxed with the details */
+	guint has_weak_fields : 1; /* class has weak reference fields */
 
 	MonoClass  *parent;
 	MonoClass  *nested_in;
@@ -383,7 +384,7 @@ struct _MonoClass {
 };
 
 typedef struct {
-	MonoClass class;
+	MonoClass klass;
 	guint32	flags;
 	/*
 	 * From the TypeDef table
@@ -396,7 +397,7 @@ typedef struct {
 } MonoClassDef;
 
 typedef struct {
-	MonoClassDef class;
+	MonoClassDef klass;
 	MonoGenericContainer *generic_container;
 	/* The canonical GENERICINST where we instantiate a generic type definition with its own generic parameters.*/
 	/* Suppose we have class T`2<A,B> {...}.  canonical_inst is the GTD T`2 applied to A and B. */
@@ -404,21 +405,21 @@ typedef struct {
 } MonoClassGtd;
 
 typedef struct {
-	MonoClass class;
+	MonoClass klass;
 	MonoGenericClass *generic_class;
 } MonoClassGenericInst;
 
 typedef struct {
-	MonoClass class;
+	MonoClass klass;
 } MonoClassGenericParam;
 
 typedef struct {
-	MonoClass class;
+	MonoClass klass;
 	guint32 method_count;
 } MonoClassArray;
 
 typedef struct {
-	MonoClass class;
+	MonoClass klass;
 } MonoClassPointer;
 
 #ifdef COMPRESSED_INTERFACE_BITMAP
@@ -700,6 +701,7 @@ typedef struct MonoCachedClassInfo {
 	guint has_static_refs : 1;
 	guint no_special_static_fields : 1;
 	guint is_generic_container : 1;
+	guint has_weak_fields : 1;
 	guint32 cctor_token;
 	MonoImage *finalize_image;
 	guint32 finalize_token;
@@ -916,7 +918,7 @@ void
 mono_classes_cleanup (void);
 
 void
-mono_class_layout_fields (MonoClass *klass, int base_instance_size, int packing_size, gboolean sre);
+mono_class_layout_fields (MonoClass *klass, int base_instance_size, int packing_size, int real_size, gboolean sre);
 
 void
 mono_class_setup_interface_offsets (MonoClass *klass);
@@ -940,7 +942,7 @@ MonoMethod*
 mono_class_get_method_by_index (MonoClass *klass, int index);
 
 MonoMethod*
-mono_class_get_inflated_method (MonoClass *klass, MonoMethod *method);
+mono_class_get_inflated_method (MonoClass *klass, MonoMethod *method, MonoError *error);
 
 MonoMethod*
 mono_class_get_vtable_entry (MonoClass *klass, int offset);
@@ -954,9 +956,8 @@ mono_class_get_vtable_size (MonoClass *klass);
 gboolean
 mono_class_is_open_constructed_type (MonoType *t);
 
-gboolean
-mono_class_get_overrides_full (MonoImage *image, guint32 type_token, MonoMethod ***overrides, gint32 *num_overrides,
-			       MonoGenericContext *generic_context);
+void
+mono_class_get_overrides_full (MonoImage *image, guint32 type_token, MonoMethod ***overrides, gint32 *num_overrides, MonoGenericContext *generic_context, MonoError *error);
 
 MonoMethod*
 mono_class_get_cctor (MonoClass *klass) MONO_LLVM_INTERNAL;
@@ -1026,13 +1027,13 @@ void
 mono_method_set_generic_container (MonoMethod *method, MonoGenericContainer* container);
 
 MonoMethod*
-mono_class_inflate_generic_method_full (MonoMethod *method, MonoClass *klass_hint, MonoGenericContext *context);
-
-MonoMethod*
 mono_class_inflate_generic_method_full_checked (MonoMethod *method, MonoClass *klass_hint, MonoGenericContext *context, MonoError *error);
 
 MonoMethod *
 mono_class_inflate_generic_method_checked (MonoMethod *method, MonoGenericContext *context, MonoError *error);
+
+MonoImageSet *
+mono_metadata_get_image_set_for_class (MonoClass *klass);
 
 MonoImageSet *
 mono_metadata_get_image_set_for_method (MonoMethodInflated *method);
@@ -1113,6 +1114,7 @@ typedef struct {
 	MonoClass *generic_ireadonlylist_class;
 	MonoClass *threadpool_wait_callback_class;
 	MonoMethod *threadpool_perform_wait_callback_method;
+	MonoClass *console_class;
 } MonoDefaults;
 
 #ifdef DISABLE_REMOTING
@@ -1304,9 +1306,6 @@ mono_type_get_checked        (MonoImage *image, guint32 type_token, MonoGenericC
 gboolean
 mono_generic_class_is_generic_type_definition (MonoGenericClass *gklass);
 
-MonoMethod*
-mono_class_get_method_generic (MonoClass *klass, MonoMethod *method);
-
 MonoType*
 mono_type_get_basic_type_from_generic (MonoType *type);
 
@@ -1356,7 +1355,7 @@ MonoClassField*
 mono_class_get_field_from_name_full (MonoClass *klass, const char *name, MonoType *type);
 
 MonoVTable*
-mono_class_vtable_full (MonoDomain *domain, MonoClass *klass, MonoError *error);
+mono_class_vtable_checked (MonoDomain *domain, MonoClass *klass, MonoError *error);
 
 gboolean
 mono_class_is_assignable_from_slow (MonoClass *target, MonoClass *candidate);
@@ -1476,16 +1475,16 @@ void
 mono_class_set_field_count (MonoClass *klass, guint32 count);
 
 MonoMarshalType*
-mono_class_get_marshal_info (MonoClass *class);
+mono_class_get_marshal_info (MonoClass *klass);
 
 void
-mono_class_set_marshal_info (MonoClass *class, MonoMarshalType *marshal_info);
+mono_class_set_marshal_info (MonoClass *klass, MonoMarshalType *marshal_info);
 
 guint32
-mono_class_get_ref_info_handle (MonoClass *class);
+mono_class_get_ref_info_handle (MonoClass *klass);
 
 guint32
-mono_class_set_ref_info_handle (MonoClass *class, guint32 value);
+mono_class_set_ref_info_handle (MonoClass *klass, guint32 value);
 
 MonoErrorBoxed*
 mono_class_get_exception_data (MonoClass *klass);
@@ -1518,13 +1517,22 @@ void
 mono_class_set_field_def_values (MonoClass *klass, MonoFieldDefaultValue *values);
 
 guint32
-mono_class_get_declsec_flags (MonoClass *class);
+mono_class_get_declsec_flags (MonoClass *klass);
 
 void
-mono_class_set_declsec_flags (MonoClass *class, guint32 value);
+mono_class_set_declsec_flags (MonoClass *klass, guint32 value);
 
 void
 mono_class_set_is_com_object (MonoClass *klass);
+
+void
+mono_class_set_weak_bitmap (MonoClass *klass, int nbits, gsize *bits);
+
+gsize*
+mono_class_get_weak_bitmap (MonoClass *klass, int *nbits);
+
+MonoMethod *
+mono_class_get_method_from_name_checked (MonoClass *klass, const char *name, int param_count, int flags, MonoError *error);
 
 /*Now that everything has been defined, let's include the inline functions */
 #include <mono/metadata/class-inlines.h>
