@@ -113,6 +113,7 @@ ikvm_native=yes
 host_win32=no
 target_win32=no
 platform_android=no
+platform_os400=no
 platform_tizen=no
 platform_ios=no
 host_darwin=no
@@ -282,6 +283,32 @@ case "$host" in
 			with_gc=sgen
 			;;
 		powerpc*-*-linux*)
+			# https://bugzilla.novell.com/show_bug.cgi?id=504411
+			disable_munmap=yes
+			;;
+		esac
+		with_sgen_default_concurrent=yes
+		;;
+	*-*-os400)
+		TARGET=POWERPC64
+		arch_target=powerpc64
+		platform_os400=yes
+		CPPFLAGS="$CPPFLAGS -DGC_LINUX_THREADS -D_GNU_SOURCE -D_REENTRANT -DUSE_MMAP -Wimplicit-function-declaration -DUSE_GCC_ATOMIC_OPS -DTARGET_POWERPC64"
+		CFLAGS="$CFLAGS -Wimplicit-function-declaration -DUSE_GCC_ATOMIC_OPS -DTARGET_POWERPC64"
+		if test "x$disable_munmap" != "xyes"; then
+			CPPFLAGS="$CPPFLAGS -DUSE_MUNMAP"
+		fi
+		libmono_cflags="-D_REENTRANT"
+		libdl="-ldl"
+		libgc_threads=pthreads
+		use_sigposix=yes
+		if test "x$cross_compiling" != "xno"; then
+                	# to bypass the underscore linker check, not
+                	# available during cross-compilation
+                	mono_cv_uscore=no
+                fi
+		case "$host" in
+		powerpc*)
 			# https://bugzilla.novell.com/show_bug.cgi?id=504411
 			disable_munmap=yes
 			;;
@@ -1657,7 +1684,9 @@ if test x$host_win32 = xno; then
 	AC_CHECK_FUNCS(backtrace_symbols)
 	AC_CHECK_FUNCS(mkstemp)
 	AC_CHECK_FUNCS(mmap)
-	AC_CHECK_FUNCS(madvise)
+	if test x$platform_os400 = xno; then
+		AC_CHECK_FUNCS(madvise)
+	fi
 	AC_CHECK_FUNCS(getrusage)
 	AC_CHECK_FUNCS(getpriority)
 	AC_CHECK_FUNCS(setpriority)
@@ -3381,7 +3410,7 @@ case "$host" in
 		INTL="intl"
 		;;
 	macppc-*-openbsd* | powerpc*-*-linux* | powerpc-*-openbsd* | \
-        powerpc-*-sysv* | powerpc-*-darwin* | powerpc-*-netbsd* | powerpc-*-freebsd* )
+        powerpc-*-sysv* | powerpc-*-darwin* | powerpc-*-netbsd* | powerpc-*-freebsd | powerpc-*-os400 )
 		if test "x$ac_cv_sizeof_void_p" = "x8"; then
 			TARGET=POWERPC64;
 			CPPFLAGS="$CPPFLAGS -D__mono_ppc__ -D__mono_ppc64__"
